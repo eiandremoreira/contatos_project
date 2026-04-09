@@ -1,4 +1,110 @@
+<?php
 
+require_once 'config.php';
+session_start();
+
+$sucesso = '';
+$erro    = '';
+
+$id = (int)($_GET['id'] ?? 0);
+if ($id <= 0) {
+    header('Location: lista.php');
+    exit;
+}
+
+try {
+    $db   = getDB();
+    $stmt = $db->prepare('SELECT id, nome, email, mensagem FROM contatos WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+    $contato = $stmt->fetch();
+} catch (PDOException $e) {
+    $contato = null;
+}
+
+if (!$contato) {
+    header('Location: lista.php');
+    exit;
+}
+
+$campos = [
+    'nome'     => limpar($contato['nome']),
+    'email'    => limpar($contato['email']),
+    'mensagem' => limpar($contato['mensagem'] ?? ''),
+];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    if (!validarCSRF($_POST['csrf_token'] ?? '')) {
+        $erro = 'Token de segurança inválido. Recarregue a página.';
+    } else {
+        $nome     = trim($_POST['nome']     ?? '');
+        $email    = trim($_POST['email']    ?? '');
+        $senha    = $_POST['senha']         ?? '';
+        $mensagem = trim($_POST['mensagem'] ?? '');
+
+        $campos = [
+            'nome'     => limpar($nome),
+            'email'    => limpar($email),
+            'mensagem' => limpar($mensagem),
+        ];
+
+        $erros = [];
+
+        if (mb_strlen($nome) < 3 || mb_strlen($nome) > 100) {
+            $erros[] = 'Nome deve ter entre 3 e 100 caracteres.';
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $erros[] = 'E-mail inválido.';
+        }
+        if (!empty($senha)) {
+            if (mb_strlen($senha) < 8) {
+                $erros[] = 'Senha deve ter no mínimo 8 caracteres.';
+            }
+            if (!preg_match('/[A-Z]/', $senha)) {
+                $erros[] = 'Senha deve conter pelo menos uma letra maiúscula.';
+            }
+            if (!preg_match('/[0-9]/', $senha)) {
+                $erros[] = 'Senha deve conter pelo menos um número.';
+            }
+        }
+        if (mb_strlen($mensagem) > 250) {
+            $erros[] = 'Mensagem deve ter no máximo 250 caracteres.';
+        }
+
+        if (empty($erros)) {
+            try {
+                $check = $db->prepare('SELECT id FROM contatos WHERE email = ? AND id != ? LIMIT 1');
+                $check->execute([$email, $id]);
+                if ($check->fetch()) {
+                    $erro = 'Este e-mail já pertence a outro contato.';
+                } else {
+                    if (!empty($senha)) {
+                        $hash   = password_hash($senha, PASSWORD_BCRYPT);
+                        $update = $db->prepare(
+                            'UPDATE contatos SET nome=?, email=?, senha=?, mensagem=? WHERE id=?'
+                        );
+                        $update->execute([$nome, $email, $hash, $mensagem, $id]);
+                    } else {
+                        $update = $db->prepare(
+                            'UPDATE contatos SET nome=?, email=?, mensagem=? WHERE id=?'
+                        );
+                        $update->execute([$nome, $email, $mensagem, $id]);
+                    }
+
+                    $sucesso = 'Contato atualizado com sucesso!';
+                    unset($_SESSION['csrf_token']);
+                }
+            } catch (PDOException $e) {
+                $erro = 'Erro ao atualizar os dados. Tente novamente.';
+            }
+        } else {
+            $erro = implode('<br>', $erros);
+        }
+    }
+}
+
+$csrfToken = gerarCSRF();
+?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
