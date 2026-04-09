@@ -5,7 +5,27 @@ session_start();
 $mensagem = '';
 $tipoMsg  = '';
 
-
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['acao']) && $_POST['acao'] === 'deletar') {
+    if (!validarCSRF($_POST['csrf_token'] ?? '')) {
+        $mensagem = 'Token de segurança inválido.';
+        $tipoMsg  = 'error';
+    } else {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id > 0) {
+            try {
+                $db   = getDB();
+                $stmt = $db->prepare('DELETE FROM contatos WHERE id = ?');
+                $stmt->execute([$id]);
+                $mensagem = 'Contato removido com sucesso.';
+                $tipoMsg  = 'success';
+                unset($_SESSION['csrf_token']);
+            } catch (PDOException $e) {
+                $mensagem = 'Erro ao remover contato.';
+                $tipoMsg  = 'error';
+            }
+        }
+    }
+}
 
 try {
     $db       = getDB();
@@ -106,6 +126,37 @@ $csrfToken = gerarCSRF();
         </footer>
     </div>
 
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <div class="modal-icon">&#128465;</div>
+            <h3>Remover contato?</h3>
+            <p id="modalMsg">Tem certeza que deseja remover este contato?</p>
+            <div class="modal-actions">
+                <button type="button" class="btn-modal btn-cancel" onclick="fecharModal()">Cancelar</button>
+                <form method="POST" action="lista.php" id="formDelete">
+                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                    <input type="hidden" name="acao" value="deletar">
+                    <input type="hidden" name="id" id="deleteId" value="">
+                    <button type="submit" class="btn-modal btn-confirm">Remover</button>
+                </form>
+            </div>
+        </div>
+    </div>
 
+    <script src="app.js"></script>
+    <script>
+        function confirmarDelete(id, nome) {
+            document.getElementById('deleteId').value = id;
+            document.getElementById('modalMsg').textContent =
+                'Tem certeza que deseja remover "' + nome + '"? Esta ação não pode ser desfeita.';
+            document.getElementById('modalOverlay').classList.add('active');
+        }
+        function fecharModal() {
+            document.getElementById('modalOverlay').classList.remove('active');
+        }
+        document.getElementById('modalOverlay').addEventListener('click', function(e) {
+            if (e.target === this) fecharModal();
+        });
+    </script>
 </body>
 </html>
